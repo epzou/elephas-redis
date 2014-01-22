@@ -1,6 +1,6 @@
 {
   "name": "elephas-redis",
-  "version": "0.10.0",
+  "version": "0.2.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -14,6 +14,7 @@
     "hashring": "~1.0.3",
     "crc": "~0.2.1",
     "randy": "~1.4.2",
-    "lodash": "~2.4.1"
+    "lodash": "~2.4.1",
+    "async": "~0.2.9"
   }
 }

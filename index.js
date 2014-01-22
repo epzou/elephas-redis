@@ -5,6 +5,7 @@ var crc = require('crc');
 var randy = require('randy');
 var HashRing = require('hashring');
 var _ = require('lodash');
+var async = require('async');
 
 /**
  * initialize Redis.
@@ -21,8 +22,6 @@ var Redis = function() {
 };
 
 Redis.prototype.configure = function(opts, logger) {
-
-  console.log(opts);
 
   var self = this;
 
@@ -178,6 +177,30 @@ Redis.prototype.chooseManual = function(schemaName, key, callback) {
     // Error
     console.log('Error !!!');
   }
+
+};
+
+Redis.prototype.all = function(schemaName, command, args, callback) {
+
+  var self = this;
+
+  var schema = self.mapping[schemaName];
+
+  var nodes = schema.cluster;
+
+  // async実行
+  async.map(nodes, function(node, done) {
+    var client = self.clients[node];
+    client[command](schemaName, args, done);
+  }, function(err, results) {
+    if (err) {
+      return callback(err);
+    }
+    callback(null, {
+      clusterName: schema.clusterName,
+      results: results
+    });
+  });
 
 };
 
