@@ -188,9 +188,16 @@ Redis.prototype.all = function(schemaName, command, args, callback) {
 
   var nodes = schema.cluster;
 
+  if (!callback && typeof args === 'function') {
+    callback = args;
+  }
+
   // async実行
   async.map(nodes, function(node, done) {
     var client = self.clients[node];
+    if (typeof args === 'function') {
+      return client[command](schemaName, done);
+    }
     client[command](schemaName, args, done);
   }, function(err, results) {
     if (err) {
