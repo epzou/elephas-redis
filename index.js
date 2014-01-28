@@ -211,4 +211,112 @@ Redis.prototype.all = function(schemaName, command, args, callback) {
 
 };
 
+Redis.prototype.multi = function(tasks) {
+
+  var self = this;
+
+  return new Multi(self, tasks);
+};
+
+var Multi = function(redis, tasks) {
+
+  var self = this;
+
+  self.redis = redis;
+
+  self.tasks = [];
+
+  self.lastResult = [];
+  self.cacheResult = null;
+
+  if (tasks) {
+    _.each(tasks, function(task) {
+      self.tasks.push({
+        schema: task[0],
+        command: task[1],
+        args: task[2],
+      });
+    });
+  }
+
+};
+
+Multi.prototype.add = function(schema, command, args) {
+
+  var self = this;
+
+  self.tasks.push({
+    schema: schema,
+    command: command,
+    args: args
+  });
+
+  return self;
+};
+
+Multi.prototype.exec = function(callback) {
+
+  var self = this;
+
+  var nodeMap = {};
+
+  async.each(self.tasks, function(task, done) {
+
+    self.redis.getNode(task.schema, task.args, function(err, client) {
+
+      var server = client.host + ':' + client.port;
+
+      var node = nodeMap[server];
+      if (!node) {
+        node = nodeMap[server] = {
+          multi: client.multi(),
+          tasks: [],
+        };
+      }
+      node.tasks.push(function(done) {
+        node.multi[task.command](task.schema, task.args);
+        done();
+      });
+
+      done();
+    });
+  }, function() {
+
+    async.map(_.values(nodeMap), function(node, done) {
+      var multi = node.multi;
+      async.parallel(node.tasks, function() {
+        multi.exec(function(err, result) {
+          self.lastResult.push(result);
+          done();
+        });
+      });
+    }, function(err) {
+      if (err) {
+        return callback(err);
+      }
+      callback(null);
+    });
+  });
+};
+
+Multi.prototype.result = function() {
+
+  var self = this;
+
+  if (self.cacheResult) {
+    return self.cacheResult;
+  }
+
+  var result = [];
+
+  _.each(self.lastResult, function(res) {
+    Array.prototype.push.apply(result, res);
+  });
+
+  self.cacheResult = result;
+
+  return result;
+
+};
+
 module.exports = new Redis();
