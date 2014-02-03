@@ -47,6 +47,7 @@ Redis.prototype.configure = function(opts, logger) {
         logger.get('redis').error('Connection failed.');
         logger.get('redis').error(err);
       }
+      console.log('***** Connection failed!! *****');
     });
     clients[key] = client;
   });
@@ -234,20 +235,22 @@ var Multi = function(redis, tasks) {
       self.tasks.push({
         schema: task[0],
         command: task[1],
-        args: task[2],
+        key: task[2],
+        args: task[3],
       });
     });
   }
 
 };
 
-Multi.prototype.add = function(schema, command, args) {
+Multi.prototype.add = function(schema, command, key, args) {
 
   var self = this;
 
   self.tasks.push({
     schema: schema,
     command: command,
+    key: key,
     args: args
   });
 
@@ -262,33 +265,53 @@ Multi.prototype.exec = function(callback) {
 
   async.each(self.tasks, function(task, done) {
 
-    self.redis.getNode(task.schema, task.args, function(err, client) {
+    self.redis.getNode(task.schema, task.key, function(err, client) {
+      if (err) {
+        return callback(err);
+      }
 
       var server = client.host + ':' + client.port;
 
       var node = nodeMap[server];
       if (!node) {
         node = nodeMap[server] = {
-          multi: client.multi(),
-          tasks: [],
+          host: client.host,
+          port: client.port,
+          tasks: []
         };
       }
-      node.tasks.push(function(done) {
-        node.multi[task.command](task.schema, task.args);
-        done();
-      });
+      node.tasks.push(task);
 
       done();
     });
   }, function() {
 
     async.map(_.values(nodeMap), function(node, done) {
-      var multi = node.multi;
-      async.parallel(node.tasks, function() {
-        multi.exec(function(err, result) {
-          self.lastResult.push(result);
-          done();
-        });
+      var client = redis.createClient(
+        node.port,
+        node.host,
+        { retry_max_delay: 60 * 1000 }
+      );
+      // Error
+      client.on('error', function(err) {
+        console.log(err);
+      });
+      var multi = client.multi();
+      
+      _.each(node.tasks, function(task) {
+        if (!task.args) {
+          multi[task.command](task.schema, task.key);
+        } else {
+          multi[task.command](task.schema, task.key, task.args);
+        }
+      });
+      multi.exec(function(err, result) {
+        client.quit();
+        if (err) {
+          return done(err);
+        }
+        self.lastResult.push(result);
+        done();
       });
     }, function(err) {
       if (err) {
